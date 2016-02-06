@@ -28,6 +28,7 @@ import json
 import urllib
 import sys
 import ConfigParser
+import re
 
 # Set DEVELOPER_KEY to the API key value from the APIs & auth > Registered apps
 # tab of
@@ -42,29 +43,36 @@ FREEBASE_SEARCH_URL = "https://www.googleapis.com/freebase/v1/search?%s"
 VIDEO_WATCH_URL = "https://www.youtube.com/watch?v="
 # youtube apis: https://developers.google.com/youtube/v3/docs/search/list
 
+[scriptDir,scriptName]=os.path.split(__file__)
 outputDir=os.environ['HOME']+'/Downloads/Youtubes'
 
-def get_youtube_video(url):
+def getCleanOutputName(info):
+    name=info['title'].replace('?','')
+    name=name+'-'+info['id']+'.mp4'
+    return name
+
+def getYoutubeVideo(url,overwrite=False):
     ydl_opts = {}
     with youtube_dl.YoutubeDL(ydl_opts) as ydl:
         ydl.add_default_info_extractors()
         info=ydl.extract_info(url,download=False)
-        title=info['title']
-        id=info['id']
-        filename=title+'-'+id+'.mp4'
-        downloaded=ydl.download([url])
+        filename=getCleanOutputName(info)
+        os.chdir(outputDir)
+        fullFilename=outputDir+'/'+filename
+        doDownload=True
         if os.path.exists(filename):
-            shutil.move(filename,outputDir+'/'+filename)
-        else:
-            raise Exception('Expected downloaded video not found')
+            print('file '+filename+' exists in '+outputDir)
+            if not overwrite:
+                print('Not overwriting')
+                doDownload=False
+        if doDownload:
+            ydl.download([url])
+            if not os.path.exists(filename):
+                raise Exception('Expected downloaded video not found:\n'+filename)
+        os.chdir(scriptDir)
 
-    #ydl.add_default_info_extractors()
-    #for i in sorted(dir(ydl)):
-    #    print(i)
-    #ydl._html_search_regex(r'<h1>(.+?)</h1>', webpage, 'title')
-    #_logger.info("End of search")
+    return fullFilename
 
-          
 
 def get_topic_id(options):
 
@@ -121,8 +129,7 @@ def youtube_search(mid, options):
         if search_result["id"]["kind"] == "youtube#video":
             url=VIDEO_WATCH_URL+search_result["id"]["videoId"]
             print( "%s (%s)" % (search_result["snippet"]["title"],url))
-            get_youtube_video(url)
-
+            name=getYoutubeVideo(url)
         elif search_result["id"]["kind"] == "youtube#channel":
             print( "%s (%s)" % (search_result["snippet"]["title"],
               search_result["id"]["channelId"]))
