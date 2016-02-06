@@ -4,11 +4,14 @@
 Help will be here :)
 """
 from __future__ import division, print_function, absolute_import
+from __future__ import unicode_literals
 
 import argparse
 import sys
 import logging
-from youtube_dl import YoutubeDL
+import youtube_dl
+import shutil
+import os
 
 from talktome import __version__
 
@@ -37,16 +40,47 @@ YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
 FREEBASE_SEARCH_URL = "https://www.googleapis.com/freebase/v1/search?%s"
 VIDEO_WATCH_URL = "https://www.youtube.com/watch?v="
+# youtube apis: https://developers.google.com/youtube/v3/docs/search/list
+
+outputDir=os.environ['HOME']+'/Downloads/Youtubes'
+
+def get_youtube_video(url):
+    ydl_opts = {}
+    with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+        ydl.add_default_info_extractors()
+        info=ydl.extract_info(url,download=False)
+        title=info['title']
+        id=info['id']
+        filename=title+'-'+id+'.mp4'
+        downloaded=ydl.download([url])
+        if os.path.exists(filename):
+            shutil.move(filename,outputDir+'/'+filename)
+        else:
+            raise Exception('Expected downloaded video not found')
+
+    #ydl.add_default_info_extractors()
+    #for i in sorted(dir(ydl)):
+    #    print(i)
+    #ydl._html_search_regex(r'<h1>(.+?)</h1>', webpage, 'title')
+    #_logger.info("End of search")
+
+          
 
 def get_topic_id(options):
-    # Retrieve a list of Freebase topics associated with the provided query term.
-    freebase_params = dict(query=options.query, key=DEVELOPER_KEY)
+
+    freebase_params = dict(query=options.query,key=DEVELOPER_KEY)
+    freebase_params['type']='video'
+    freebase_params['videoDuration']='short'
+    freebase_params['maxResults']=5
+    freebase_params['publishedAfter']='2017-01-01T00:00:00Z'
     freebase_url = FREEBASE_SEARCH_URL % urllib.urlencode(freebase_params)
     freebase_response = json.loads(urllib.urlopen(freebase_url).read())
-  
+
     if len(freebase_response["result"]) == 0:
         exit("No matching terms were found in Freebase.")
-  
+
+    results=freebase_response["result"]
+
     # Display the list of matching Freebase topics.
     mids = []
     index = 1
@@ -56,7 +90,7 @@ def get_topic_id(options):
         print("  %2d. %s (%s)" % (index, result.get("name", "Unknown"),
             result.get("notable", {}).get("name", "Unknown")))
         index += 1
-  
+
     # Display a prompt for the user to select a topic and return the topic ID
     # of the selected topic.
     mid = None
@@ -70,7 +104,7 @@ def get_topic_id(options):
     return mid
 
 def youtube_search(mid, options):
-    youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
+    youtube = build(YOUTUBE_API_SERVICE_NAME,YOUTUBE_API_VERSION,
     developerKey=DEVELOPER_KEY)
 
     # Call the search.list method to retrieve results associated with the
@@ -85,8 +119,10 @@ def youtube_search(mid, options):
     # Print the title and ID of each matching resource.
     for search_result in search_response.get("items", []):
         if search_result["id"]["kind"] == "youtube#video":
-            print( "%s (%s)" % (search_result["snippet"]["title"],
-              VIDEO_WATCH_URL+search_result["id"]["videoId"]))
+            url=VIDEO_WATCH_URL+search_result["id"]["videoId"]
+            print( "%s (%s)" % (search_result["snippet"]["title"],url))
+            get_youtube_video(url)
+
         elif search_result["id"]["kind"] == "youtube#channel":
             print( "%s (%s)" % (search_result["snippet"]["title"],
               search_result["id"]["channelId"]))
@@ -116,13 +152,6 @@ def main(args):
         print ("An HTTP error %d occurred:\n%s" % (e.resp.status, e.content))
 
     _logger.info("End of searching youtubes")
-
-    #ydl = YoutubeDL()
-    #ydl.add_default_info_extractors()
-    #for i in sorted(dir(ydl)):
-    #    print(i)
-    #ydl._html_search_regex(r'<h1>(.+?)</h1>', webpage, 'title')
-    #_logger.info("End of search")
 
 def run():
     logging.basicConfig(level=logging.INFO, stream=sys.stdout)
