@@ -64,8 +64,11 @@ def getYoutubeVideo(url,overwrite=False):
         info=ydl.extract_info(url,download=False)
         filename=getCleanOutputName(info)
         os.chdir(outputDir)
-        print(filename)
-        fullFilename=outputDir+'/'+filename
+        try:
+            fullFilename=outputDir+'/'+filename
+        except:
+            print('File name encoding issue with url: '+url)
+            return None
         doDownload=True
         if os.path.exists(filename):
             print('file '+filename+' exists in '+outputDir)
@@ -133,14 +136,8 @@ def youtubeSearch(options):
             url=VIDEO_WATCH_URL+search_result["id"]["videoId"]
             print( "%s (%s)" % (search_result["snippet"]["title"],url))
             name=getYoutubeVideo(url)
-            audioName=convertVideoToAudio(name)
-
-        elif search_result["id"]["kind"] == "youtube#channel":
-            print( "%s (%s)" % (search_result["snippet"]["title"],
-              search_result["id"]["channelId"]))
-        elif search_result["id"]["kind"] == "youtube#playlist":
-            print( "%s (%s)" % (search_result["snippet"]["title"],
-              search_result["id"]["playlistId"]))
+            if name != None:
+                audioName=convertVideoToAudio(name)
 
 def parse_args(args):
     """
