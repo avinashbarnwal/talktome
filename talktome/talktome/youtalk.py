@@ -54,6 +54,7 @@ def getCleanOutputName(info):
     name=info['title']
     name=youtube_dl.utils.sanitize_filename(name)
     name=name+'-'+info['id']+'.mp4'
+    name=name.encode('utf-8')
     return name
 
 def getYoutubeVideo(url,overwrite=False):
@@ -63,6 +64,7 @@ def getYoutubeVideo(url,overwrite=False):
         info=ydl.extract_info(url,download=False)
         filename=getCleanOutputName(info)
         os.chdir(outputDir)
+        print(filename)
         fullFilename=outputDir+'/'+filename
         doDownload=True
         if os.path.exists(filename):
@@ -97,10 +99,10 @@ def convertVideoToAudio(name,overwrite=False):
             doConversion=False
 
     if doConversion:
-        cmd='avconv -y -i "'+name.encode()+'" -vn -f '+targetFormat+' "'+filename.encode()+'"'
+        cmd='avconv -y -i "'+name.encode('utf-8')+'" -vn -f '+targetFormat+' "'+filename.encode('utf-8')+'"'
         print(cmd)
         subprocess.check_call(shlex.split(cmd))
-        cmd='mp3gain -r "'+filename+'"'
+        cmd='mp3gain -c -r "'+filename+'"'
         subprocess.check_call(shlex.split(cmd))
 
     return filename
@@ -151,9 +153,14 @@ def parse_args(args):
     parser.add_argument("--query",required=True,help="Freebase search term")
     parser.add_argument("--max-results",help="Max YouTube results",default=25)
     parser.add_argument("--type",help="YouTube result type: video, playlist, or channel", default="channel")
+
     return parser.parse_args(args)
 
 def main(args):
+    runCmd=open(outputDir+'/cmd','w')
+    runCmd.write(' '.join(args))
+    runCmd.write('\n')
+    runCmd.close()
     args = parse_args(args)
     #mid = get_topic_id(args)
     try:
