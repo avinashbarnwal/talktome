@@ -12,6 +12,8 @@ import logging
 import youtube_dl
 import shutil
 import os
+import subprocess
+import shlex
 
 from talktome import __version__
 
@@ -44,10 +46,13 @@ VIDEO_WATCH_URL = "https://www.youtube.com/watch?v="
 # youtube apis: https://developers.google.com/youtube/v3/docs/search/list
 
 [scriptDir,scriptName]=os.path.split(__file__)
-outputDir=os.environ['HOME']+'/Downloads/Youtubes'
+#outputDir=os.environ['HOME']+'/Downloads/Youtubes'
+config.readfp(open('locals.cfg'))
+outputDir = config.get('locations','outputDir')
 
 def getCleanOutputName(info):
-    name=info['title'].replace('?','')
+    name=info['title']
+    name=youtube_dl.utils.sanitize_filename(name)
     name=name+'-'+info['id']+'.mp4'
     return name
 
@@ -63,10 +68,13 @@ def getYoutubeVideo(url,overwrite=False):
         if os.path.exists(filename):
             print('file '+filename+' exists in '+outputDir)
             if not overwrite:
-                print('Not overwriting')
+                print('Not overwriting download')
                 doDownload=False
+
         if doDownload:
             ydl.download([url])
+            with open(filename+'.json','w') as fn:
+                json.dump(info,fn)
             if not os.path.exists(filename):
                 raise Exception('Expected downloaded video not found:\n'+filename)
         os.chdir(scriptDir)
@@ -74,54 +82,47 @@ def getYoutubeVideo(url,overwrite=False):
     return fullFilename
 
 
-def get_topic_id(options):
+def convertVideoToAudio(name,overwrite=False):
+    targetFormat='mp3'
+    filename=name.split('.')
+    filename.pop()
+    filename.append(targetFormat)
+    filename='.'.join(filename)
 
-    freebase_params = dict(query=options.query,key=DEVELOPER_KEY)
-    freebase_params['type']='video'
-    freebase_params['videoDuration']='short'
-    freebase_params['maxResults']=5
-    freebase_params['publishedAfter']='2017-01-01T00:00:00Z'
-    freebase_url = FREEBASE_SEARCH_URL % urllib.urlencode(freebase_params)
-    freebase_response = json.loads(urllib.urlopen(freebase_url).read())
+    doConversion=True
+    if os.path.exists(filename):
+        print('file '+filename+' exists in '+outputDir)
+        if not overwrite:
+            print('Not overwriting audio')
+            doConversion=False
 
-    if len(freebase_response["result"]) == 0:
-        exit("No matching terms were found in Freebase.")
+    if doConversion:
+        cmd='avconv -y -i "'+name.encode()+'" -vn -f '+targetFormat+' "'+filename.encode()+'"'
+        print(cmd)
+        subprocess.check_call(shlex.split(cmd))
+        cmd='mp3gain -r "'+filename+'"'
+        subprocess.check_call(shlex.split(cmd))
 
-    results=freebase_response["result"]
+    return filename
 
-    # Display the list of matching Freebase topics.
-    mids = []
-    index = 1
-    print("The following topics were found:")
-    for result in freebase_response["result"]:
-        mids.append(result["mid"])
-        print("  %2d. %s (%s)" % (index, result.get("name", "Unknown"),
-            result.get("notable", {}).get("name", "Unknown")))
-        index += 1
+def youtubeSearch(options):
 
-    # Display a prompt for the user to select a topic and return the topic ID
-    # of the selected topic.
-    mid = None
-    while mid is None:
-        index = raw_input("Enter a topic number to find related YouTube %ss: " %
-            options.type)
-        try:
-            mid = mids[int(index) - 1]
-        except ValueError:
-            pass
-    return mid
-
-def youtube_search(mid, options):
     youtube = build(YOUTUBE_API_SERVICE_NAME,YOUTUBE_API_VERSION,
     developerKey=DEVELOPER_KEY)
+
+    options.__setattr__('type','video')
+    options.__setattr__('videoDuration','short')
+    options.__setattr__('maxResults','50')
+    options.__setattr__('publishedAfter','2010-01-01T00:00:00Z')
 
     # Call the search.list method to retrieve results associated with the
     # specified Freebase topic.
     search_response = youtube.search().list(
-        topicId=mid,
+        q=options.query,
+        maxResults=options.maxResults,
         type=options.type,
+        videoDuration=options.videoDuration,
         part="id,snippet",
-        maxResults=options.max_results
     ).execute()
 
     # Print the title and ID of each matching resource.
@@ -130,6 +131,8 @@ def youtube_search(mid, options):
             url=VIDEO_WATCH_URL+search_result["id"]["videoId"]
             print( "%s (%s)" % (search_result["snippet"]["title"],url))
             name=getYoutubeVideo(url)
+            audioName=convertVideoToAudio(name)
+
         elif search_result["id"]["kind"] == "youtube#channel":
             print( "%s (%s)" % (search_result["snippet"]["title"],
               search_result["id"]["channelId"]))
@@ -152,9 +155,9 @@ def parse_args(args):
 
 def main(args):
     args = parse_args(args)
-    mid = get_topic_id(args)
+    #mid = get_topic_id(args)
     try:
-        youtube_search(mid, args)
+        youtubeSearch(args)
     except HttpError, e:
         print ("An HTTP error %d occurred:\n%s" % (e.resp.status, e.content))
 
