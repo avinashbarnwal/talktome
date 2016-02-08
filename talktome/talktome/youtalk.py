@@ -14,6 +14,12 @@ import shutil
 import os
 import subprocess
 import shlex
+import glob
+import librosa
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn
+import IPython.display
 
 from talktome import __version__
 
@@ -32,6 +38,8 @@ import sys
 import ConfigParser
 import re
 
+[scriptDir,scriptName]=os.path.split(__file__)
+
 # Set DEVELOPER_KEY to the API key value from the APIs & auth > Registered apps
 # tab of
 #   https://cloud.google.com/console
@@ -45,10 +53,84 @@ FREEBASE_SEARCH_URL = "https://www.googleapis.com/freebase/v1/search?%s"
 VIDEO_WATCH_URL = "https://www.youtube.com/watch?v="
 # youtube apis: https://developers.google.com/youtube/v3/docs/search/list
 
-[scriptDir,scriptName]=os.path.split(__file__)
 #outputDir=os.environ['HOME']+'/Downloads/Youtubes'
 config.readfp(open('locals.cfg'))
 outputDir = config.get('locations','outputDir')
+audioTargetFormat='wav'
+
+def analyzeAudios():
+    filename=sorted(glob.glob(outputDir+'/*.'+audioTargetFormat))[4]
+    fileoutName=filename.replace('.'+audioTargetFormat,'.png')
+    #%matplotlib inline
+    seaborn.set(style='ticks')
+    # and IPython.display for audio output
+    y, sr = librosa.load(filename)
+    # Let's make and display a mel-scaled power (energy-squared) spectrogram
+    S = librosa.feature.melspectrogram(y, sr=sr, n_mels=128)
+    # Convert to log scale (dB). We'll use the peak power as reference.
+    log_S = librosa.logamplitude(S, ref_power=np.max)
+    # Make a new figure
+    plt.figure(figsize=(12,4))
+    # Display the spectrogram on a mel scale
+    # sample rate and hop length parameters are used to render the time axis
+    librosa.display.specshow(log_S, sr=sr, x_axis='time', y_axis='mel')
+    # Put a descriptive title on the plot
+    plt.title('mel power spectrogram')
+    # draw a color bar
+    plt.colorbar(format='%+02.0f dB')
+
+    # Make the figure layout compact
+    plt.tight_layout()
+    #plt.show()
+    plt.savefig(fileoutName,format='png',dpi=300)
+
+def analyzeAudios2():
+    filenames=sorted(glob.glob(outputDir+'/*.'+audioTargetFormat))
+
+    for filename in filenames:
+        fileoutName=filename.replace('.'+audioTargetFormat,'.png')
+
+        seaborn.set(style='ticks')
+        # and IPython.display for audio output
+        y, sr = librosa.load(filename)
+
+        y_harmonic, y_percussive = librosa.effects.hpss(y)
+
+        # What do the spectrograms look like?
+        # Let's make and display a mel-scaled power (energy-squared) spectrogram
+        S_harmonic   = librosa.feature.melspectrogram(y_harmonic, sr=sr)
+        S_percussive = librosa.feature.melspectrogram(y_percussive, sr=sr)
+
+        # Convert to log scale (dB). We'll use the peak power as reference.
+        log_Sh = librosa.logamplitude(S_harmonic, ref_power=np.max)
+        log_Sp = librosa.logamplitude(S_percussive, ref_power=np.max)
+
+        # Make a new figure
+        plt.figure(figsize=(12,6))
+
+        plt.subplot(2,1,1)
+        # Display the spectrogram on a mel scale
+        librosa.display.specshow(log_Sh, sr=sr, y_axis='mel')
+
+        # Put a descriptive title on the plot
+        plt.title('mel power spectrogram (Harmonic)')
+
+        # draw a color bar
+        plt.colorbar(format='%+02.0f dB')
+
+        plt.subplot(2,1,2)
+        librosa.display.specshow(log_Sp, sr=sr, x_axis='time', y_axis='mel')
+
+        # Put a descriptive title on the plot
+        plt.title('mel power spectrogram (Percussive)')
+
+        # draw a color bar
+        plt.colorbar(format='%+02.0f dB')
+
+        # Make the figure layout compact
+        plt.tight_layout()
+        #plt.show()
+        plt.savefig(fileoutName,format='png',dpi=300)
 
 def getCleanOutputName(info):
     name=info['title']
@@ -97,11 +179,10 @@ def getYoutubeVideo(url,options,overwrite=False):
 
 
 def convertVideoToAudio(name,overwrite=False):
-    targetFormat='wav'
     filename=name.split('.')
     filename.pop()
     filenameBase='.'.join(filename)
-    filename=filenameBase+'.'+targetFormat
+    filename=filenameBase+'.'+audioTargetFormat
 
     doConversion=True
     if os.path.exists(filename):
@@ -111,7 +192,7 @@ def convertVideoToAudio(name,overwrite=False):
             doConversion=False
 
     if doConversion:
-        cmd='avconv -y -i "'+name.encode('utf-8')+'" -vn -f '+targetFormat+' "'+filename.encode('utf-8')+'"'
+        cmd='avconv -y -i "'+name.encode('utf-8')+'" -vn -f '+audioTargetFormat+' "'+filename.encode('utf-8')+'"'
         subprocess.check_call(shlex.split(cmd))
         #cmd='mp3gain -c -r "'+filename+'"'
         #subprocess.check_call(shlex.split(cmd))
@@ -158,7 +239,7 @@ def parse_args(args):
     """
     parser = argparse.ArgumentParser(description="Machine learning lie detector")
     parser.add_argument('-v','--version',action='version',version='talktome {ver}'.format(ver=__version__))
-    parser.add_argument("--query",required=True,help="Freebase search term")
+    parser.add_argument("--query",help="Freebase search term")
     parser.add_argument("--max-results",help="Max YouTube results",default=25)
     parser.add_argument("--type",help="YouTube result type: video, playlist, or channel", default="channel")
 
@@ -170,17 +251,24 @@ def main(args):
     runCmd.write('\n')
     runCmd.close()
     args = parse_args(args)
-    #mid = get_topic_id(args)
+    return args
+
+def searchTubes():
+    logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+    args=main(sys.argv[1:])
     try:
         youtubeSearch(args)
     except HttpError, e:
         print ("An HTTP error %d occurred:\n%s" % (e.resp.status, e.content))
-
     _logger.info("End of searching youtubes")
 
-def run():
+def analyzeTubes():
     logging.basicConfig(level=logging.INFO, stream=sys.stdout)
-    main(sys.argv[1:])
+    args=main(sys.argv[1:])
+    analyzeAudios2()
+    _logger.info("End of analyzing youtubes")
 
 if __name__ == "__main__":
-    run()
+    print("Sorry, no main here")
+
+
