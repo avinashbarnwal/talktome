@@ -57,12 +57,21 @@ def getCleanOutputName(info):
     name=name.encode('utf-8')
     return name
 
-def getYoutubeVideo(url,overwrite=False):
+def getYoutubeVideo(url,options,overwrite=False):
     ydl_opts = {}
     with youtube_dl.YoutubeDL(ydl_opts) as ydl:
         ydl.add_default_info_extractors()
         info=ydl.extract_info(url,download=False)
         filename=getCleanOutputName(info)
+
+        haveTag=False
+        if options.__contains__('tags'):
+            for itag in info['tags']:
+                if re.search(options.tags,itag,re.IGNORECASE):
+                    haveTag=True
+        if not haveTag:
+            return None
+
         os.chdir(outputDir)
         try:
             fullFilename=outputDir+'/'+filename
@@ -88,11 +97,11 @@ def getYoutubeVideo(url,overwrite=False):
 
 
 def convertVideoToAudio(name,overwrite=False):
-    targetFormat='mp3'
+    targetFormat='wav'
     filename=name.split('.')
     filename.pop()
-    filename.append(targetFormat)
-    filename='.'.join(filename)
+    filenameBase='.'.join(filename)
+    filename=filenameBase+'.'+targetFormat
 
     doConversion=True
     if os.path.exists(filename):
@@ -103,10 +112,9 @@ def convertVideoToAudio(name,overwrite=False):
 
     if doConversion:
         cmd='avconv -y -i "'+name.encode('utf-8')+'" -vn -f '+targetFormat+' "'+filename.encode('utf-8')+'"'
-        print(cmd)
         subprocess.check_call(shlex.split(cmd))
-        cmd='mp3gain -c -r "'+filename+'"'
-        subprocess.check_call(shlex.split(cmd))
+        #cmd='mp3gain -c -r "'+filename+'"'
+        #subprocess.check_call(shlex.split(cmd))
 
     return filename
 
@@ -119,15 +127,18 @@ def youtubeSearch(options):
     options.__setattr__('videoDuration','short')
     options.__setattr__('maxResults','50')
     options.__setattr__('publishedAfter','2010-01-01T00:00:00Z')
+    options.__setattr__('safeSearch','strict')
+    options.__setattr__('tags','interview')
 
     # Call the search.list method to retrieve results associated with the
     # specified Freebase topic.
     search_response = youtube.search().list(
         q=options.query,
-        maxResults=options.maxResults,
         type=options.type,
         videoDuration=options.videoDuration,
-        part="id,snippet",
+        maxResults=options.maxResults,
+        safeSearch=options.safeSearch,
+        part="id,snippet"
     ).execute()
 
     # Print the title and ID of each matching resource.
@@ -135,7 +146,7 @@ def youtubeSearch(options):
         if search_result["id"]["kind"] == "youtube#video":
             url=VIDEO_WATCH_URL+search_result["id"]["videoId"]
             print( "%s (%s)" % (search_result["snippet"]["title"],url))
-            name=getYoutubeVideo(url)
+            name=getYoutubeVideo(url,options)
             if name != None:
                 audioName=convertVideoToAudio(name)
 
