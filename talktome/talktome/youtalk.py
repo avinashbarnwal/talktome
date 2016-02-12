@@ -19,7 +19,7 @@ import librosa
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn
-import IPython.display
+#import IPython.display
 
 from talktome import __version__
 
@@ -37,6 +37,9 @@ import urllib
 import sys
 import ConfigParser
 import re
+from features import mfcc
+from features import logfbank
+import scipy.io.wavfile as wav
 
 [scriptDir,scriptName]=os.path.split(__file__)
 
@@ -57,6 +60,43 @@ VIDEO_WATCH_URL = "https://www.youtube.com/watch?v="
 config.readfp(open('locals.cfg'))
 outputDir = config.get('locations','outputDir')
 audioTargetFormat='wav'
+
+def _speechFeatures():
+    
+    filename=sorted(glob.glob(outputDir+'/*.'+audioTargetFormat))[2]
+    (rate,sig) = wav.read(filename)
+
+    sig = sig[0:(rate*10)]
+
+    mfcc_feat = mfcc(sig,rate)
+    fbank_feat = logfbank(sig,rate)
+    print(fbank_feat[1:3,:])
+    print(fbank_feat.shape)
+    print(mfcc_feat.shape)
+
+    fileoutName=filename.replace('.'+audioTargetFormat,'.png')
+    fileoutName='test.png'
+    print(fileoutName)
+    fig = plt.figure(figsize=(12,4))
+    ax = fig.add_subplot(211)
+    ax.contourf(np.transpose(mfcc_feat))
+    plt.tight_layout()
+
+    ax = fig.add_subplot(212)
+    mfcc_sum = np.sum(np.transpose(np.sqrt(mfcc_feat*mfcc_feat)),0)
+    
+    n=6
+    mfcc_sum_ref = mfcc_sum[:]
+    for i in range(len(mfcc_sum_ref)):
+        minidx=max(0,i-int(n/2))
+        maxidx=min(len(mfcc_sum_ref),i+(n-int(n/2)))
+        mfcc_sum[i]=np.sum(mfcc_sum_ref[minidx:maxidx])/(maxidx-minidx)
+
+    ax.plot(mfcc_sum)
+    #ax.set_yscale('log')
+    plt.tight_layout()
+
+    plt.savefig(fileoutName,format='png',dpi=300)
 
 def analyzeAudios():
     filename=sorted(glob.glob(outputDir+'/*.'+audioTargetFormat))[4]
@@ -88,49 +128,80 @@ def analyzeAudios2():
     filenames=sorted(glob.glob(outputDir+'/*.'+audioTargetFormat))
 
     for filename in filenames:
-        fileoutName=filename.replace('.'+audioTargetFormat,'.png')
+        for isuffix in ['harmonic','percussive','mfcc']:
+            if re.search('\.'+isuffix+'\.'+audioTargetFormat+'$',filename):
+                continue
 
-        seaborn.set(style='ticks')
-        # and IPython.display for audio output
+        print(filename)
         y, sr = librosa.load(filename)
 
-        y_harmonic, y_percussive = librosa.effects.hpss(y)
+        #lenY=len(y)
+        #idx1=min(int(20*sr),lenY)
+        #idx2=min(int(24*sr),lenY)
+        #y = y[idx1:idx2]
 
-        # What do the spectrograms look like?
-        # Let's make and display a mel-scaled power (energy-squared) spectrogram
-        S_harmonic   = librosa.feature.melspectrogram(y_harmonic, sr=sr)
-        S_percussive = librosa.feature.melspectrogram(y_percussive, sr=sr)
+        #y_harmonic, y_percussive = librosa.effects.hpss(y)
+        S = librosa.feature.melspectrogram(y, sr=sr, n_mels=128)
+        log_S = librosa.logamplitude(S, ref_power=np.max)
 
-        # Convert to log scale (dB). We'll use the peak power as reference.
-        log_Sh = librosa.logamplitude(S_harmonic, ref_power=np.max)
-        log_Sp = librosa.logamplitude(S_percussive, ref_power=np.max)
+        seaborn.set(style='ticks')
 
-        # Make a new figure
-        plt.figure(figsize=(12,6))
-
-        plt.subplot(2,1,1)
-        # Display the spectrogram on a mel scale
-        librosa.display.specshow(log_Sh, sr=sr, y_axis='mel')
-
-        # Put a descriptive title on the plot
-        plt.title('mel power spectrogram (Harmonic)')
-
-        # draw a color bar
+        fileoutName=filename.replace('.'+audioTargetFormat,'.melpower.png')
+        plt.figure(figsize=(12,4))
+        librosa.display.specshow(log_S, sr=sr, x_axis='time', y_axis='mel')
+        plt.title('mel power spectrogram')
         plt.colorbar(format='%+02.0f dB')
-
-        plt.subplot(2,1,2)
-        librosa.display.specshow(log_Sp, sr=sr, x_axis='time', y_axis='mel')
-
-        # Put a descriptive title on the plot
-        plt.title('mel power spectrogram (Percussive)')
-
-        # draw a color bar
-        plt.colorbar(format='%+02.0f dB')
-
-        # Make the figure layout compact
         plt.tight_layout()
-        #plt.show()
         plt.savefig(fileoutName,format='png',dpi=300)
+
+
+        # Next, we'll extract the top 13 Mel-frequency cepstral coefficients (MFCCs)
+        mfcc        = librosa.feature.mfcc(S=log_S, n_mfcc=13)
+        delta_mfcc  = librosa.feature.delta(mfcc)
+        delta2_mfcc = librosa.feature.delta(mfcc, order=2)
+
+        fileoutName=filename.replace('.'+audioTargetFormat,'.melcoeff.png')
+        plt.figure(figsize=(12, 6))
+        plt.subplot(3,1,1)
+        librosa.display.specshow(mfcc)
+        plt.ylabel('MFCC')
+        plt.colorbar()
+        plt.subplot(3,1,2)
+        librosa.display.specshow(delta_mfcc)
+        plt.ylabel('MFCC-$\Delta$')
+        plt.colorbar()
+        plt.subplot(3,1,3)
+        librosa.display.specshow(delta2_mfcc, sr=sr, x_axis='time')
+        plt.ylabel('MFCC-$\Delta^2$')
+        plt.colorbar()
+        plt.tight_layout()
+        plt.savefig(fileoutName,format='png',dpi=300)
+
+        # For future use, we'll stack these together into one matrix
+        M = np.vstack([mfcc, delta_mfcc, delta2_mfcc])
+
+
+        #fileoutHarmonicName=filename.replace('.'+audioTargetFormat,'.harmonic.'+audioTargetFormat)
+        #fileoutPercussiveName=filename.replace('.'+audioTargetFormat,'.percussive.'+audioTargetFormat)
+        #S_harmonic   = librosa.feature.melspectrogram(y_harmonic, sr=sr)
+        #S_percussive = librosa.feature.melspectrogram(y_percussive, sr=sr)
+        #librosa.output.write_wav(fileoutHarmonicName,y_harmonic,sr)
+        #librosa.output.write_wav(fileoutPercussiveName,y_percussive,sr)
+        # # Convert to log scale (dB). We'll use the peak power as reference.
+        # log_Sh = librosa.logamplitude(S_harmonic, ref_power=np.max)
+        # log_Sp = librosa.logamplitude(S_percussive, ref_power=np.max)
+        # plt.figure(figsize=(12,6))
+        # plt.subplot(2,1,1)
+        # librosa.display.specshow(log_Sh, sr=sr, y_axis='mel')
+        # plt.title('mel power spectrogram (Harmonic)')
+        # plt.colorbar(format='%+02.0f dB')
+        # plt.subplot(2,1,2)
+        # librosa.display.specshow(log_Sp, sr=sr, x_axis='time', y_axis='mel')
+        # plt.title('mel power spectrogram (Percussive)')
+        # plt.colorbar(format='%+02.0f dB')
+        # plt.tight_layout()
+        # #plt.show()
+        # plt.savefig(fileoutName,format='png',dpi=300)
 
 def getCleanOutputName(info):
     name=info['title']
@@ -246,7 +317,7 @@ def parse_args(args):
     return parser.parse_args(args)
 
 def main(args):
-    runCmd=open(outputDir+'/cmd','w')
+    runCmd=open(outputDir+'/cmd','w+')
     runCmd.write(' '.join(args))
     runCmd.write('\n')
     runCmd.close()
@@ -266,6 +337,12 @@ def analyzeTubes():
     logging.basicConfig(level=logging.INFO, stream=sys.stdout)
     args=main(sys.argv[1:])
     analyzeAudios2()
+    _logger.info("End of analyzing youtubes")
+
+def speechFeatures():
+    logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+    args=main(sys.argv[1:])
+    _speechFeatures()
     _logger.info("End of analyzing youtubes")
 
 if __name__ == "__main__":
