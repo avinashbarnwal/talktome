@@ -17,6 +17,7 @@ import shlex
 import glob
 import librosa
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn
 #import IPython.display
@@ -61,6 +62,53 @@ config.readfp(open('locals.cfg'))
 outputDir = config.get('locations','outputDir')
 audioTargetFormat='wav'
 
+class AudioSegment:
+    def __init__(self,filename,startTime=0,endTime=None):
+        self.filename = filename
+        self.startTime = startTime
+        self.endTime = endTime
+        self.operationLog = None
+        self.features = None
+        self.description = None
+
+# size of a 1 s for 10 cepstral per sampling rate of 22050
+print('ciao')
+seconds=10000
+sr=22050
+ncoefficients=50
+print('MB: {:.2f}'.format(np.array([1.]).nbytes*seconds*sr*ncoefficients/1024/1024))
+
+def analyzeAudios():
+    #http://bmcfee.github.io/librosa/
+    filename=sorted(glob.glob(outputDir+'/*.'+audioTargetFormat))[4]
+    fileoutName=filename.replace('.'+audioTargetFormat,'.png')
+    fileoutName='test.png'
+    #%matplotlib inline
+    seaborn.set(style='ticks')
+    # and IPython.display for audio output
+    y, sr = librosa.load(filename)
+    # Let's make and display a mel-scaled power (energy-squared) spectrogram
+    S = librosa.feature.melspectrogram(y,sr=sr,n_mels=512)
+    # Convert to log scale (dB). We'll use the peak power as reference.
+    log_S = librosa.logamplitude(S, ref_power=np.max)
+    # Make a new figure
+    fig = plt.figure(figsize=(12,4))
+    # Display the spectrogram on a mel scale
+    # sample rate and hop length parameters are used to render the time axis
+    #librosa.display.specshow(log_S, sr=sr, x_axis='time', y_axis='mel')
+    ax = fig.add_subplot(211)
+    ax.contourf(log_S)
+    # Put a descriptive title on the plot
+    plt.title('mel power spectrogram')
+    # draw a color bar
+    #plt.colorbar(format='%+02.0f dB')
+
+    # Make the figure layout compact
+    plt.tight_layout()
+    #plt.show()
+    plt.savefig(fileoutName,format='png',dpi=900)
+    print(fileoutName)
+
 def _speechFeatures():
     
     filename=sorted(glob.glob(outputDir+'/*.'+audioTargetFormat))[2]
@@ -98,35 +146,9 @@ def _speechFeatures():
 
     plt.savefig(fileoutName,format='png',dpi=300)
 
-def analyzeAudios():
-    filename=sorted(glob.glob(outputDir+'/*.'+audioTargetFormat))[4]
-    fileoutName=filename.replace('.'+audioTargetFormat,'.png')
-    #%matplotlib inline
-    seaborn.set(style='ticks')
-    # and IPython.display for audio output
-    y, sr = librosa.load(filename)
-    # Let's make and display a mel-scaled power (energy-squared) spectrogram
-    S = librosa.feature.melspectrogram(y, sr=sr, n_mels=128)
-    # Convert to log scale (dB). We'll use the peak power as reference.
-    log_S = librosa.logamplitude(S, ref_power=np.max)
-    # Make a new figure
-    plt.figure(figsize=(12,4))
-    # Display the spectrogram on a mel scale
-    # sample rate and hop length parameters are used to render the time axis
-    librosa.display.specshow(log_S, sr=sr, x_axis='time', y_axis='mel')
-    # Put a descriptive title on the plot
-    plt.title('mel power spectrogram')
-    # draw a color bar
-    plt.colorbar(format='%+02.0f dB')
-
-    # Make the figure layout compact
-    plt.tight_layout()
-    #plt.show()
-    plt.savefig(fileoutName,format='png',dpi=300)
 
 def analyzeAudios2():
     filenames=sorted(glob.glob(outputDir+'/*.'+audioTargetFormat))
-
     for filename in filenames:
         for isuffix in ['harmonic','percussive','mfcc']:
             if re.search('\.'+isuffix+'\.'+audioTargetFormat+'$',filename):
@@ -342,7 +364,8 @@ def analyzeTubes():
 def speechFeatures():
     logging.basicConfig(level=logging.INFO, stream=sys.stdout)
     args=main(sys.argv[1:])
-    _speechFeatures()
+    analyzeAudios()
+    #_speechFeatures()
     _logger.info("End of analyzing youtubes")
 
 if __name__ == "__main__":
