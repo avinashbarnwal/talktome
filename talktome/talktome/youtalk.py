@@ -20,7 +20,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn
-#import IPython.display
+
+from talktome import segment
 
 from talktome import __version__
 
@@ -48,62 +49,57 @@ import scipy.io.wavfile as wav
 # tab of
 #   https://cloud.google.com/console
 # Please ensure that you have enabled the YouTube Data API for your project.
-config = ConfigParser.ConfigParser()
-config.readfp(open('api_keys.cfg'))
-DEVELOPER_KEY = config.get('google','youtubeDataKey')
+apiConfig = ConfigParser.ConfigParser()
+apiConfig.readfp(open('api_keys.cfg'))
+DEVELOPER_KEY = apiConfig.get('google','youtubeDataKey')
 YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
 FREEBASE_SEARCH_URL = "https://www.googleapis.com/freebase/v1/search?%s"
 VIDEO_WATCH_URL = "https://www.youtube.com/watch?v="
+CONFIG_FILENAME='locals.cfg'
 # youtube apis: https://developers.google.com/youtube/v3/docs/search/list
 
-#outputDir=os.environ['HOME']+'/Downloads/Youtubes'
-config.readfp(open('locals.cfg'))
+config = ConfigParser.ConfigParser()
+config.readfp(open(CONFIG_FILENAME))
 outputDir = config.get('locations','outputDir')
 audioTargetFormat='wav'
 
-class AudioSegment:
-    def __init__(self,filename,startTime=0,endTime=None):
-        self.filename = filename
-        self.startTime = startTime
-        self.endTime = endTime
-        self.operationLog = None
-        self.features = None
-        self.description = None
-
 # size of a 1 s for 10 cepstral per sampling rate of 22050
-print('ciao')
 seconds=10000
 sr=22050
 ncoefficients=50
 print('MB: {:.2f}'.format(np.array([1.]).nbytes*seconds*sr*ncoefficients/1024/1024))
 
 def analyzeAudios():
-    #http://bmcfee.github.io/librosa/
-    filename=sorted(glob.glob(outputDir+'/*.'+audioTargetFormat))[4]
+    # librosa API reference: http://bmcfee.github.io/librosa/
+    audioNumber=4
+    filename=sorted(glob.glob(outputDir+'/*.'+audioTargetFormat))[audioNumber]
+    print('"'+filename+'"')
+    sys.exit(0)
+
+    y,sr=librosa.load(filename)
+    onsets=librosa.onset.onset_detect(y,sr)
+
     fileoutName=filename.replace('.'+audioTargetFormat,'.png')
     fileoutName='test.png'
     #%matplotlib inline
     seaborn.set(style='ticks')
-    # and IPython.display for audio output
-    y, sr = librosa.load(filename)
-    # Let's make and display a mel-scaled power (energy-squared) spectrogram
-    S = librosa.feature.melspectrogram(y,sr=sr,n_mels=512)
-    # Convert to log scale (dB). We'll use the peak power as reference.
+    S = librosa.feature.melspectrogram(y,sr=sr,n_mels=128)
     log_S = librosa.logamplitude(S, ref_power=np.max)
-    # Make a new figure
+
     fig = plt.figure(figsize=(12,4))
-    # Display the spectrogram on a mel scale
-    # sample rate and hop length parameters are used to render the time axis
-    #librosa.display.specshow(log_S, sr=sr, x_axis='time', y_axis='mel')
     ax = fig.add_subplot(211)
     ax.contourf(log_S)
-    # Put a descriptive title on the plot
     plt.title('mel power spectrogram')
-    # draw a color bar
-    #plt.colorbar(format='%+02.0f dB')
 
-    # Make the figure layout compact
+    #ax.annotate('$->$',xy=(2.,-1),xycoords='data',
+    #xytext=(-150, -140), textcoords='offset points',
+    #bbox=dict(boxstyle="round", fc="0.8"),
+    #arrowprops=dict(arrowstyle="->",patchB=el, connectionstyle="angle,angleA=90,angleB=0,rad=10"),)
+
+    ax = fig.add_subplot(212)
+    ax.plot(onsets)
+    #plt.colorbar(format='%+02.0f dB')
     plt.tight_layout()
     #plt.show()
     plt.savefig(fileoutName,format='png',dpi=900)
@@ -239,13 +235,17 @@ def getYoutubeVideo(url,options,overwrite=False):
         info=ydl.extract_info(url,download=False)
         filename=getCleanOutputName(info)
 
-        haveTag=False
         if options.__contains__('tags'):
+            haveTag=False
+            tags=options.tags.replace(',','|')
             for itag in info['tags']:
-                if re.search(options.tags,itag,re.IGNORECASE):
+                if re.search(tags,itag,re.IGNORECASE):
                     haveTag=True
-        if not haveTag:
-            return None
+            if not haveTag:
+                print('warning: no tags found: '+tags)
+                print('tags were:')
+                print(', '.join(info['tags']))
+                return None
 
         os.chdir(outputDir)
         try:
@@ -296,33 +296,66 @@ def youtubeSearch(options):
 
     youtube = build(YOUTUBE_API_SERVICE_NAME,YOUTUBE_API_VERSION,
     developerKey=DEVELOPER_KEY)
+    configQuery = ConfigParser.ConfigParser()
+    configQuery.readfp(open(CONFIG_FILENAME))
 
-    options.__setattr__('type','video')
-    options.__setattr__('videoDuration','short')
-    options.__setattr__('maxResults','50')
-    options.__setattr__('publishedAfter','2010-01-01T00:00:00Z')
-    options.__setattr__('safeSearch','strict')
-    options.__setattr__('tags','interview')
+    optionList=[
+    'part',
+    'maxResults',
+    'publishedAfter',
+    'publishedBefore',
+    'q',
+    'safeSearch',
+    'type',
+    'videoDuration',
+    'relevanceLanguage',
+    'regionCode',
+    'videoDimension',
+    'videoDefinition',
+    'eventType',
+    ]
 
-    # Call the search.list method to retrieve results associated with the
-    # specified Freebase topic.
+    for i in optionList:
+        iv=configQuery.get('youtubeQuery',i)
+        if iv!=None:
+            options.__setattr__(i,iv)
+
+    # https://developers.google.com/youtube/v3/docs/search/list
+    # https://developers.google.com/apis-explorer/#search/youtube/youtube/v3/youtube.search.list
+
     search_response = youtube.search().list(
-        q=options.query,
+        part=options.part,
+        maxResults=options.maxResults,
+        publishedAfter=options.publishedAfter,
+        publishedBefore=options.publishedBefore,
+        q=options.q,
+        safeSearch=options.safeSearch,
         type=options.type,
         videoDuration=options.videoDuration,
-        maxResults=options.maxResults,
-        safeSearch=options.safeSearch,
-        part="id,snippet"
+        relevanceLanguage=options.relevanceLanguage,
+        regionCode=options.regionCode,
+        videoDimension=options.videoDimension,
+        videoDefinition=options.videoDefinition,
+        eventType=options.eventType,
     ).execute()
+
+    iv=configQuery.get('youtubeTags','tags')
+    if iv!=None:
+        options.__setattr__('tags',iv)
 
     # Print the title and ID of each matching resource.
     for search_result in search_response.get("items", []):
         if search_result["id"]["kind"] == "youtube#video":
             url=VIDEO_WATCH_URL+search_result["id"]["videoId"]
-            print( "%s (%s)" % (search_result["snippet"]["title"],url))
+            title=search_result["snippet"]["title"]
+            print('\nTitle:\n')
+            print( "%s (%s)\n" % (search_result["snippet"]["title"],url))
             name=getYoutubeVideo(url,options)
             if name != None:
                 audioName=convertVideoToAudio(name)
+        else:
+            print("Not getting the video")
+            print("id, kind: "+search_result["id"]["kind"])
 
 def parse_args(args):
     """
@@ -332,9 +365,9 @@ def parse_args(args):
     """
     parser = argparse.ArgumentParser(description="Machine learning lie detector")
     parser.add_argument('-v','--version',action='version',version='talktome {ver}'.format(ver=__version__))
-    parser.add_argument("--query",help="Freebase search term")
-    parser.add_argument("--max-results",help="Max YouTube results",default=25)
-    parser.add_argument("--type",help="YouTube result type: video, playlist, or channel", default="channel")
+    parser.add_argument("--q",help="Freebase search term")
+    parser.add_argument("--maxResults",help="Max YouTube results")
+    parser.add_argument("--type",help="YouTube result type")
 
     return parser.parse_args(args)
 

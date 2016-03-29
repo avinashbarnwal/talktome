@@ -24,7 +24,7 @@ if [ -n "$1" ]; then
         pip install -U scikit-learn
         pip install -U scikits.samplerate
         pip install -U seaborn
-        pip install -U IPython
         pip install -U google-api-python-client
+        pip install -U audioread
     fi
 fi
