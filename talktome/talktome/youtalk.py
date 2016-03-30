@@ -343,6 +343,8 @@ def youtubeSearch(options):
     optionList=[
     'part',
     'maxResults',
+    'publishedAfter',
+    'publishedBefore',
     'q',
     'safeSearch',
     'type',
@@ -362,22 +364,20 @@ def youtubeSearch(options):
     # https://developers.google.com/youtube/v3/docs/search/list
     # https://developers.google.com/apis-explorer/#search/youtube/youtube/v3/youtube.search.list
 
-    #'publishedAfter',
-    #'publishedBefore',
 
-    startDate=datetime.datetime.strptime('20150101','%Y%m%d')
-    endDate=datetime.datetime.strptime('20151231','%Y%m%d')
+    dateFormat='%Y-%m-%dT00:00:00Z'
+    startDate=datetime.datetime.strptime(options.publishedAfter,dateFormat)
+    endDate=datetime.datetime.strptime(options.publishedBefore,dateFormat)
     idate=startDate
 
+
     while idate < endDate:
-        dateFormat='%Y-%m-%dT00:00:00Z'
         options.__setattr__('publishedAfter',idate.strftime(dateFormat))
         idate+=datetime.timedelta(days=1)
         options.__setattr__('publishedBefore',idate.strftime(dateFormat))
-        print('Downloading for\n'+
-        'publishedAfter: '+options.publishedAfter+'\n'+
-        'publishedBefore: '+options.publishedBefore+'\n')
-    
+        print('\nDownloading for publishedAfter: '+options.publishedAfter+' '+
+        'publishedBefore: '+options.publishedBefore+'\n\n')
+
         search_response = youtube.search().list(
             part=options.part,
             maxResults=options.maxResults,
