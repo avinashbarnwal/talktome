@@ -20,9 +20,10 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn
+import random
 
 from talktome import segment
-
+from talktome import audio as a
 from talktome import __version__
 
 __author__ = "poijqwef"
@@ -59,9 +60,9 @@ VIDEO_WATCH_URL = "https://www.youtube.com/watch?v="
 CONFIG_FILENAME='locals.cfg'
 # youtube apis: https://developers.google.com/youtube/v3/docs/search/list
 
-config = ConfigParser.ConfigParser()
-config.readfp(open(CONFIG_FILENAME))
-outputDir = config.get('locations','outputDir')
+configOutput = ConfigParser.ConfigParser()
+configOutput.readfp(open(CONFIG_FILENAME))
+outputDir = configOutput.get('locations','outputDir')
 audioTargetFormat='wav'
 
 # size of a 1 s for 10 cepstral per sampling rate of 22050
@@ -292,6 +293,45 @@ def convertVideoToAudio(name,overwrite=False):
 
     return filename
 
+
+def _audiosProperties(options):
+    config = ConfigParser.ConfigParser()
+    config.readfp(open(CONFIG_FILENAME))
+    outputDir = config.get('locations','outputDir')
+    dataDir = config.get('locations','dataDir')
+    dataFileName = config.get('locations','dataFileName')
+    fileOutName = dataDir+'/'+dataFileName
+    randomSeed = config.getint('random','seed')
+
+    if options.rebuildAudioProperties:
+        dataFiles = sorted(glob.glob(outputDir+'/*.'+audioTargetFormat))
+        nDataFiles = len(dataFiles)
+        filesDf = pd.DataFrame()
+        filesDf['fileName'] = dataFiles
+        filesDf['tempo'] = None
+        randomIdxs=random.sample(filesDf.index.values,20)
+        randomIdxs=filesDf.index.values
+        hopLength = config.getint('audio','hopLength')
+        autocorrStdThreshold = config.getfloat('audio','autocorrStdThreshold')
+
+        for i in randomIdxs:
+            name=filesDf['fileName'][i]
+            print('Processing file: '+name)
+            audio=a.Audio(name,hopLength=hopLength,
+            autocorrStdThreshold=autocorrStdThreshold)
+            audio.load()
+            audio.setTempo()
+            filesDf['tempo'][i] = audio.tempo
+
+        filesDf.to_csv(fileOutName)
+        print('Created: '+fileOutName)
+
+    elif options.readAudioProperties:
+        filesDf = pd.read_csv(fileOutName)
+        for i in range(len(filesDf)):
+            print(filesDf['tempo'].iloc[i], filesDf['fileName'].iloc[i])
+        print('Read: '+fileOutName)
+
 def youtubeSearch(options):
 
     youtube = build(YOUTUBE_API_SERVICE_NAME,YOUTUBE_API_VERSION,
@@ -368,6 +408,8 @@ def parse_args(args):
     parser.add_argument("--q",help="Freebase search term")
     parser.add_argument("--maxResults",help="Max YouTube results")
     parser.add_argument("--type",help="YouTube result type")
+    parser.add_argument("--rebuildAudioProperties",action='store_true',help="Scans all wav files and rebuilds properties")
+    parser.add_argument("--readAudioProperties",action='store_true',help="Reads audio properties previously built")
 
     return parser.parse_args(args)
 
@@ -400,6 +442,12 @@ def speechFeatures():
     analyzeAudios()
     #_speechFeatures()
     _logger.info("End of analyzing youtubes")
+
+def audiosProperties():
+    logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+    args=main(sys.argv[1:])
+    _audiosProperties(args)
+    _logger.info("Done with audiosProperties")
 
 if __name__ == "__main__":
     print("Sorry, no main here")
