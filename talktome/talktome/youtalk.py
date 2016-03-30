@@ -21,6 +21,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn
 import random
+import datetime
 
 from talktome import segment
 from talktome import audio as a
@@ -342,8 +343,6 @@ def youtubeSearch(options):
     optionList=[
     'part',
     'maxResults',
-    'publishedAfter',
-    'publishedBefore',
     'q',
     'safeSearch',
     'type',
@@ -363,39 +362,57 @@ def youtubeSearch(options):
     # https://developers.google.com/youtube/v3/docs/search/list
     # https://developers.google.com/apis-explorer/#search/youtube/youtube/v3/youtube.search.list
 
-    search_response = youtube.search().list(
-        part=options.part,
-        maxResults=options.maxResults,
-        publishedAfter=options.publishedAfter,
-        publishedBefore=options.publishedBefore,
-        q=options.q,
-        safeSearch=options.safeSearch,
-        type=options.type,
-        videoDuration=options.videoDuration,
-        relevanceLanguage=options.relevanceLanguage,
-        regionCode=options.regionCode,
-        videoDimension=options.videoDimension,
-        videoDefinition=options.videoDefinition,
-        eventType=options.eventType,
-    ).execute()
+    #'publishedAfter',
+    #'publishedBefore',
 
-    iv=configQuery.get('youtubeTags','tags')
-    if iv!=None:
-        options.__setattr__('tags',iv)
+    startDate=datetime.datetime.strptime('20160101','%Y%m%d')
+    endDate=datetime.datetime.strptime('20160329','%Y%m%d')
+    idate=startDate
 
-    # Print the title and ID of each matching resource.
-    for search_result in search_response.get("items", []):
-        if search_result["id"]["kind"] == "youtube#video":
-            url=VIDEO_WATCH_URL+search_result["id"]["videoId"]
-            title=search_result["snippet"]["title"]
-            print('\nTitle:\n')
-            print( "%s (%s)\n" % (search_result["snippet"]["title"],url))
-            name=getYoutubeVideo(url,options)
-            if name != None:
-                audioName=convertVideoToAudio(name)
-        else:
-            print("Not getting the video")
-            print("id, kind: "+search_result["id"]["kind"])
+    while idate < endDate:
+        dateFormat='%Y-%m-%dT00:00:00Z'
+        options.__setattr__('publishedAfter',idate.strftime(dateFormat))
+        idate+=datetime.timedelta(days=1)
+        options.__setattr__('publishedBefore',idate.strftime(dateFormat))
+    
+        search_response = youtube.search().list(
+            part=options.part,
+            maxResults=options.maxResults,
+            publishedAfter=options.publishedAfter,
+            publishedBefore=options.publishedBefore,
+            q=options.q,
+            safeSearch=options.safeSearch,
+            type=options.type,
+            videoDuration=options.videoDuration,
+            relevanceLanguage=options.relevanceLanguage,
+            regionCode=options.regionCode,
+            videoDimension=options.videoDimension,
+            videoDefinition=options.videoDefinition,
+            eventType=options.eventType,
+        ).execute()
+
+        iv=configQuery.get('youtubeTags','tags')
+        if iv!=None:
+            options.__setattr__('tags',iv)
+
+        # Print the title and ID of each matching resource.
+        for search_result in search_response.get("items", []):
+            if search_result["id"]["kind"] == "youtube#video":
+                url=VIDEO_WATCH_URL+search_result["id"]["videoId"]
+                title=search_result["snippet"]["title"]
+                print('\nTitle:\n')
+                print( "%s (%s)\n" % (search_result["snippet"]["title"],url))
+
+                try:
+                    name=getYoutubeVideo(url,options)
+                except:
+                    name=None
+
+                if name != None:
+                    audioName=convertVideoToAudio(name)
+            else:
+                print("Not getting the video")
+                print("id, kind: "+search_result["id"]["kind"])
 
 def parse_args(args):
     """
