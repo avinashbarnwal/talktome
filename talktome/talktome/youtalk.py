@@ -365,8 +365,8 @@ def youtubeSearch(options):
     #'publishedAfter',
     #'publishedBefore',
 
-    startDate=datetime.datetime.strptime('20160101','%Y%m%d')
-    endDate=datetime.datetime.strptime('20160329','%Y%m%d')
+    startDate=datetime.datetime.strptime('20150101','%Y%m%d')
+    endDate=datetime.datetime.strptime('20151231','%Y%m%d')
     idate=startDate
 
     while idate < endDate:
@@ -374,6 +374,9 @@ def youtubeSearch(options):
         options.__setattr__('publishedAfter',idate.strftime(dateFormat))
         idate+=datetime.timedelta(days=1)
         options.__setattr__('publishedBefore',idate.strftime(dateFormat))
+        print('Downloading for\n'+
+        'publishedAfter: '+options.publishedAfter+'\n'+
+        'publishedBefore: '+options.publishedBefore+'\n')
     
         search_response = youtube.search().list(
             part=options.part,
