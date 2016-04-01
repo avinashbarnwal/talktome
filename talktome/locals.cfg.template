@@ -44,7 +44,9 @@ videoType=
 fields=
 
 [audio]
-hopLength =
-autocorrStdThreshold =
+hopLength=
+talkMaxAutocorrStd=
+talkMinAutocorrMean=
+talkMaxAutocorrMean=
 
 [features]

@@ -22,6 +22,7 @@ import matplotlib.pyplot as plt
 import seaborn
 import random
 import datetime
+import re
 
 from talktome import segment
 from talktome import audio as a
@@ -70,7 +71,7 @@ audioTargetFormat='wav'
 seconds=10000
 sr=22050
 ncoefficients=50
-print('MB: {:.2f}'.format(np.array([1.]).nbytes*seconds*sr*ncoefficients/1024/1024))
+#print('MB: {:.2f}'.format(np.array([1.]).nbytes*seconds*sr*ncoefficients/1024/1024))
 
 def analyzeAudios():
     # librosa API reference: http://bmcfee.github.io/librosa/
@@ -294,43 +295,70 @@ def convertVideoToAudio(name,overwrite=False):
 
     return filename
 
-
 def _audiosProperties(options):
     config = ConfigParser.ConfigParser()
     config.readfp(open(CONFIG_FILENAME))
     outputDir = config.get('locations','outputDir')
     dataDir = config.get('locations','dataDir')
+    assert not os.path.isfile(dataDir),"I need a dir here, not a file: "+dataDir
+    if not os.path.exists(dataDir):
+        os.mkdir(dataDir)
     dataFileName = config.get('locations','dataFileName')
     fileOutName = dataDir+'/'+dataFileName
-    randomSeed = config.getint('random','seed')
+    hopLength = config.getint('audio','hopLength')
+    talkMaxAutocorrStd = config.getfloat('audio','talkMaxAutocorrStd')
+    talkMinAutocorrMean = config.getfloat('audio','talkMinAutocorrMean')
+    talkMaxAutocorrMean = config.getfloat('audio','talkMaxAutocorrMean')
+    filesProcessed = pd.read_pickle(fileOutName) if os.path.isfile(fileOutName) else pd.DataFrame()
+    fileList = sorted(glob.glob(outputDir+'/*.'+audioTargetFormat))
 
-    if options.rebuildAudioProperties:
-        dataFiles = sorted(glob.glob(outputDir+'/*.'+audioTargetFormat))
-        nDataFiles = len(dataFiles)
-        filesDf = pd.DataFrame()
-        filesDf['fileName'] = dataFiles
-        filesDf['tempo'] = None
-        randomIdxs=random.sample(filesDf.index.values,20)
-        randomIdxs=filesDf.index.values
-        hopLength = config.getint('audio','hopLength')
-        autocorrStdThreshold = config.getfloat('audio','autocorrStdThreshold')
+    if options.addAudioProperties:
+        doneFileList = [] if options.rebuildAudioProperties else filesProcessed['fileName'].values
+        indexStart = len(doneFileList)
+        fileList = list(set(fileList)-set(doneFileList))
+        # # test code
+        # randomSeed = config.getint('random','seed')
+        # random.seed(randomSeed)
+        # fileList = random.sample(fileList,3)
+        # # end test code
+        filesToProcess=pd.DataFrame()
+        filesToProcess['fileName']=fileList
+        filesToProcess.set_index(filesToProcess.index.values+indexStart,inplace=True)
+        audioFeatures=['autocorrelationMean','autocorrelationStd',
+        'hopLength','onsetEnv','tempo']
+        for iFeature in audioFeatures:
+            filesToProcess[iFeature]=np.nan
 
-        for i in randomIdxs:
-            name=filesDf['fileName'][i]
-            print('Processing file: '+name)
-            audio=a.Audio(name,hopLength=hopLength,
-            autocorrStdThreshold=autocorrStdThreshold)
+        for i in filesToProcess.index:
+            name=filesToProcess.loc[i,'fileName']
+            print(i,'Processing file: '+name)
+            audio=a.Audio(name,hopLength=hopLength)
             audio.load()
-            audio.setTempo()
-            filesDf['tempo'][i] = audio.tempo
+            audio.setTempo(plot=True)
+            filesToProcess.loc[i,'tempo']=audio.tempo
+            filesToProcess.loc[i,'autocorrelationMean']=audio.autocorrelationMean
+            filesToProcess.loc[i,'autocorrelationStd']=audio.autocorrelationStd
+            filesToProcess.loc[i,'hopLength']=audio.hopLength
+            filesToProcess.loc[i,'onsetEnv']=pd.Series(audio.onsetEnv).to_json()
 
-        filesDf.to_csv(fileOutName)
+        files = filesProcessed.append(filesToProcess)
+        files.to_pickle(fileOutName)
         print('Created: '+fileOutName)
 
     elif options.readAudioProperties:
-        filesDf = pd.read_csv(fileOutName)
-        for i in range(len(filesDf)):
-            print(filesDf['tempo'].iloc[i], filesDf['fileName'].iloc[i])
+        filesProcessed['isTalk']=0
+        for i in filesProcessed.index:
+            onsetEnv=pd.read_json(filesProcessed.loc[i,'onsetEnv'],orient='index',dtype=float,typ='series')
+            #if filesProcessed['autocorrelationStd'][i] <= talkMaxAutocorrStd and \
+            #    filesProcessed['autocorrelationMean'][i] >= talkMinAutocorrMean and \
+            #    filesProcessed['autocorrelationMean'][i] <= talkMaxAutocorrMean:
+            #    filesProcessed['isTalk'][i]=1
+
+        #selected = filesProcessed[filesProcessed['isTalk']==1]
+        #for i in range(len(selected)):
+        #    print(('vlc '+"'"+selected['fileName'].iloc[i]+"' &").replace('wav','mp4'))
+        #    print('eog '+"'"+selected['fileName'].iloc[i]+".png' &")
+        #    print('--------------------------------------------------------')
         print('Read: '+fileOutName)
 
 def youtubeSearch(options):
@@ -364,12 +392,10 @@ def youtubeSearch(options):
     # https://developers.google.com/youtube/v3/docs/search/list
     # https://developers.google.com/apis-explorer/#search/youtube/youtube/v3/youtube.search.list
 
-
     dateFormat='%Y-%m-%dT00:00:00Z'
     startDate=datetime.datetime.strptime(options.publishedAfter,dateFormat)
     endDate=datetime.datetime.strptime(options.publishedBefore,dateFormat)
     idate=startDate
-
 
     while idate < endDate:
         options.__setattr__('publishedAfter',idate.strftime(dateFormat))
@@ -428,6 +454,7 @@ def parse_args(args):
     parser.add_argument("--q",help="Freebase search term")
     parser.add_argument("--maxResults",help="Max YouTube results")
     parser.add_argument("--type",help="YouTube result type")
+    parser.add_argument("--addAudioProperties",action='store_true',help="Scans all wav files and adds properties of the new ones")
     parser.add_argument("--rebuildAudioProperties",action='store_true',help="Scans all wav files and rebuilds properties")
     parser.add_argument("--readAudioProperties",action='store_true',help="Reads audio properties previously built")
 
